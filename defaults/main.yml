@@ -1,0 +1,22 @@
+---
+# Address to use when communicating with the DRAC.
+drac_address:
+
+# Username to use when communicating with the DRAC.
+drac_username:
+
+# Password to use when communicating with the DRAC.
+drac_password:
+
+# Dict mapping BIOS configuration names to their desired values.
+drac_bios_config: {}
+
+# Whether to reboot the node once BIOS settings have been applied, if required.
+drac_reboot: True
+
+# Time in seconds to wait for pending operations to complete. 0 means to wait
+# forever.
+drac_timeout: 0
+
+# Time in seconds between polling for pending operations to complete.
+drac_interval: 5
