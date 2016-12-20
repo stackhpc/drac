@@ -30,9 +30,9 @@ script:
   # Basic role syntax check
   - ansible-playbook tests/test.yml -i tests/inventory --syntax-check
 
-  # Python unit tests for drac_bios module
-  - export PYTHONPATH="$PYTHONPATH:/home/travis/build/markgoddard/drac-bios/library"
-  - python tests/test_drac_bios.py
+  # Python unit tests for drac module
+  - export PYTHONPATH="${PYTHONPATH}:${TRAVIS_BUILD_DIR}/library"
+  - python tests/test_drac.py
 
 notifications:
   webhooks: https://galaxy.ansible.com/api/v1/notifications/

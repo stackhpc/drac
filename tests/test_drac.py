@@ -4,7 +4,7 @@ import unittest
 
 import mock
 
-import drac_bios
+import drac
 
 
 class FakeSetting(object):
@@ -30,7 +30,7 @@ class FailJSON(Exception):
 
 
 class TestDRACBIOS(unittest.TestCase):
-    """Test case for Ansible drac_bios module."""
+    """Test case for Ansible drac module."""
 
     def setUp(self):
         self.module = mock.MagicMock()
@@ -39,27 +39,27 @@ class TestDRACBIOS(unittest.TestCase):
 
     def test_has_committed_config_job_no_jobs(self):
         self.bmc.list_jobs.return_value = []
-        has_job = drac_bios.has_committed_config_job(self.module, self.bmc)
+        has_job = drac.has_committed_config_job(self.module, self.bmc)
         self.assertFalse(has_job)
 
     def test_has_committed_config_job_non_config_jobs(self):
         self.bmc.list_jobs.return_value = [FakeJob('ADifferentJob')]
-        has_job = drac_bios.has_committed_config_job(self.module, self.bmc)
+        has_job = drac.has_committed_config_job(self.module, self.bmc)
         self.assertFalse(has_job)
 
     def test_has_committed_config_job_with_config_jobs(self):
         self.bmc.list_jobs.return_value = [FakeJob('ConfigBIOS')]
-        has_job = drac_bios.has_committed_config_job(self.module, self.bmc)
+        has_job = drac.has_committed_config_job(self.module, self.bmc)
         self.assertTrue(has_job)
 
     def test_has_committed_config_job_with_config_prefixed_jobs(self):
         self.bmc.list_jobs.return_value = [FakeJob('ConfigBIOS:suffix')]
-        has_job = drac_bios.has_committed_config_job(self.module, self.bmc)
+        has_job = drac.has_committed_config_job(self.module, self.bmc)
         self.assertTrue(has_job)
 
     def test_has_committed_config_job_list_jobs_failure(self):
         self.bmc.list_jobs.side_effect = Exception
-        self.assertRaises(FailJSON, drac_bios.has_committed_config_job,
+        self.assertRaises(FailJSON, drac.has_committed_config_job,
                           self.module, self.bmc)
 
     def test_check_change_one_with_reboot(self):
@@ -73,12 +73,12 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': True,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.assertDictEqual(changing, {'setting1': 'new value'})
         self.assertDictEqual(applying, {'setting1': 'new value'})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, False, True, True))
+                         drac.BIOSActions(False, False, True, True))
 
     def test_check_change_one_without_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -91,12 +91,12 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': False,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.assertDictEqual(changing, {'setting1': 'new value'})
         self.assertDictEqual(applying, {'setting1': 'new value'})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, False, True, True))
+                         drac.BIOSActions(False, False, True, True))
 
     def test_check_change_one_uncommitted_pending_with_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -109,13 +109,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': True,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {})
         self.assertDictEqual(applying, {})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, False, False, True))
+                         drac.BIOSActions(False, False, False, True))
 
     def test_check_change_one_uncommitted_pending_without_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -128,13 +128,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': False,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {})
         self.assertDictEqual(applying, {})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, False, False, True))
+                         drac.BIOSActions(False, False, False, True))
 
     def test_check_change_one_committed_pending_with_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -147,13 +147,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': True,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {})
         self.assertDictEqual(applying, {})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, True, False, False))
+                         drac.BIOSActions(False, True, False, False))
 
     def test_check_change_one_committed_pending_without_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -166,13 +166,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': False,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {})
         self.assertDictEqual(applying, {})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, False, False, False))
+                         drac.BIOSActions(False, False, False, False))
 
     def test_check_change_one_uncommitted_conflict_with_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -187,14 +187,14 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': True,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {'setting1': 'newer value'})
         self.assertDictEqual(applying, {'setting1': 'newer value',
                                         'setting3': 'new value'})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(True, False, True, True))
+                         drac.BIOSActions(True, False, True, True))
 
     def test_check_change_one_uncommitted_conflict_without_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -209,14 +209,14 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': False,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {'setting1': 'newer value'})
         self.assertDictEqual(applying, {'setting1': 'newer value',
                                         'setting3': 'new value'})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(True, False, True, True))
+                         drac.BIOSActions(True, False, True, True))
 
     def test_check_change_one_committed_conflict_with_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -231,13 +231,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': True,
         }
-        changing, applying, actions = drac_bios.check(self.module, self.bmc)
+        changing, applying, actions = drac.check(self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
         self.assertDictEqual(changing, {'setting1': 'newer value'})
         self.assertDictEqual(applying, {'setting1': 'newer value'})
         self.assertEqual(actions,
-                         drac_bios.BIOSActions(False, True, True, True))
+                         drac.BIOSActions(False, True, True, True))
 
     def test_check_change_one_committed_conflict_without_reboot(self):
         self.bmc.list_bios_settings.return_value = {
@@ -252,13 +252,13 @@ class TestDRACBIOS(unittest.TestCase):
             },
             'reboot': False,
         }
-        self.assertRaises(FailJSON, drac_bios.check, self.module, self.bmc)
+        self.assertRaises(FailJSON, drac.check, self.module, self.bmc)
         self.bmc.list_bios_settings.assert_called_once_with()
         self.bmc.list_jobs.assert_called_once_with(only_unfinished=True)
 
     def test_check_list_settings_failure(self):
         self.bmc.list_bios_settings.side_effect = Exception
-        self.assertRaises(FailJSON, drac_bios.check, self.module, self.bmc)
+        self.assertRaises(FailJSON, drac.check, self.module, self.bmc)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ except Exception as e:
 
 DOCUMENTATION = """
 ---
-module: drac_bios
+module: drac
 short_description: Ansible module for configuring BIOS settings via DRAC
 description:
   - Ansible module for configuring BIOS settings on Dell machines with an iDRAC
@@ -34,7 +34,7 @@ options:
   password:
     description: Address to use when communicating with the DRAC
     required: True
-  bios_config:
+  config:
     description: Dict mapping BIOS configuration names to their desired values
     required: True
   reboot:
@@ -58,11 +58,11 @@ options:
 
 EXAMPLES = """
 # Set the NumLock BIOS setting to 'On'.
-- drac_bios:
+- drac:
     address: 1.2.3.4
     username: admin
     password: secretpass
-    bios_config:
+    config:
       NumLock: "On"
     reboot: True
     timeout: 600
@@ -108,8 +108,8 @@ def debug(module, message):
     :param module: The AnsibleModule instance
     :param message: The message to log
     """
-    log_args = {"PRIORITY": syslog.LOG_DEBUG, "MODULE": "drac_bios",
-                "CODE_FILE": "drac_bios.py"}
+    log_args = {"PRIORITY": syslog.LOG_DEBUG, "MODULE": "drac",
+                "CODE_FILE": "drac.py"}
     module.log(message, log_args)
 
 
@@ -438,7 +438,7 @@ def main():
             address=dict(required=True, type='str'),
             username=dict(required=True, type='str'),
             password=dict(required=True, type='str'),
-            bios_config=dict(required=True, type='dict'),
+            config=dict(required=True, type='dict'),
             reboot=dict(default=False, type='bool'),
             timeout=dict(default=0, type='int'),
             interval=dict(default=5, type='int'),

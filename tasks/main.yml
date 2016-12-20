@@ -3,7 +3,7 @@
 # interacting with the DRACs via their APIs.
 - name: Ensure that DRAC BIOS configuration is applied
   local_action:
-    module: drac_bios
+    module: drac
     address: "{{ drac_address }}"
     username: "{{ drac_username }}"
     password: "{{ drac_password }}"
