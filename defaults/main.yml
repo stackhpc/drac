@@ -11,6 +11,9 @@ drac_password:
 # Dict mapping BIOS configuration names to their desired values.
 drac_bios_config: {}
 
+# List of RAID virtual disk configurations...
+drac_raid_config: []
+
 # Whether to reboot the node once BIOS settings have been applied, if required.
 drac_reboot: True
 

@@ -19,14 +19,29 @@ Role Variables
 
 The following variables may be set for this role:
 
-`drac_address`: The address to use when communicating with the DRAC.
-`drac_username`: The username to use when communicating with the DRAC.
-`drac_password`: The password to use when communicating with the DRAC.
-`drac_bios_config`: Dict mapping BIOS configuration names to their desired values.
-`drac_raid_config`: Dict mapping ?
-`drac_reboot`: Whether to reboot the node once BIOS settings have been applied.
-`drac_timeout`: Time in seconds to wait for pending operations to complete. 0 means to wait forever.
-`drac_interval`: Time in seconds between polling for operations to complete.
+`drac_address`
+: The address to use when communicating with the DRAC.
+
+`drac_username`
+: The username to use when communicating with the DRAC.
+
+`drac_password`
+: The password to use when communicating with the DRAC.
+
+`drac_bios_config`
+: Dict mapping BIOS configuration names to their desired values.
+
+`drac_raid_config`
+: Dict mapping ?
+
+`drac_reboot`
+: Whether to reboot the node once BIOS settings have been applied.
+
+`drac_timeout`
+: Time in seconds to wait for pending operations to complete. 0 means to wait forever.
+
+`drac_interval`
+: Time in seconds between polling for operations to complete.
 
 Dependencies
 ------------

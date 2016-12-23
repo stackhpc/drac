@@ -1,16 +1,18 @@
 ---
 galaxy_info:
   author: Mark Goddard
-  description: Role to configure the BIOS on Dell machines with an iDRAC card
+  description: >
+    Role to configure the BIOS and RAID on Dell machines with an iDRAC card.
   company: StackHPC Ltd
   license: BSD
   min_ansible_version: 1.2
   platforms:
-  - name: EL
-    versions:
-    - 7
+    - name: EL
+      versions:
+        - 7
   galaxy_tags:
     - bios
     - dell
     - drac
+    - raid
 dependencies: []
