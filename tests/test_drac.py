@@ -232,7 +232,7 @@ class TestDRACBIOS(BaseTestCase):
             'bios_config': {}
         }
         config = drac.get_bios_config(self.module, self.bmc)
-        self.bmc.list_bios_settings.assert_called_once_with()
+        self.bmc.list_bios_settings.assert_not_called()
         self.assertEqual(config.state, config.states.COMPLETE)
         applying = config.get_settings_to_apply()
         self.assertDictEqual(applying, {})
@@ -433,9 +433,9 @@ class TestDRACRAID(BaseTestCase):
             'raid_config': []
         }
         configs = drac.get_raid_configs(self.module, self.bmc)
-        self.bmc.list_physical_disks.assert_called_once_with()
-        self.bmc.list_raid_controllers.assert_called_once_with()
-        self.bmc.list_virtual_disks.assert_called_once_with()
+        self.bmc.list_physical_disks.assert_not_called()
+        self.bmc.list_raid_controllers.assert_not_called()
+        self.bmc.list_virtual_disks.assert_not_called()
         self.assertListEqual(configs, [])
 
     def test_get_raid_configs_no_changes(self):

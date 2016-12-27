@@ -17,10 +17,24 @@ except Exception as e:
 DOCUMENTATION = """
 ---
 module: drac
-short_description: Ansible module for configuring BIOS settings via DRAC
+short_description: Ansible module for configuring BIOS and RAID via DRAC
 description:
-  - Ansible module for configuring BIOS settings on Dell machines with an iDRAC
-    card.
+  - Ansible module for configuring BIOS settings and RAID controllers on Dell
+    machines with an iDRAC card.
+  - The module will apply changes required to reach the configuration
+    specified by the user, using the Web Services Management (WSMAN) protocol.
+  - If there are any existing pending changes, whether committed or
+    uncommitted, these will be taken into account and applied in addition to
+    the specified changes.
+  - Where any pending changes conflict with specified changes, those specified
+    as arguments to this module take priority.
+  - If the reboot argument is specified as true, the system will be rebooted
+    to apply the changes.
+  - There may be some cases where the changes could not be applied without
+    rebooting the system at least once. In these cases, the module will fail if
+    the user has specified the reboot argument as false.
+  - Since the system may be rebooted (up to 3 times in total) to apply the
+    configuration, this module may take a long time to execute.
 author: Mark Goddard (@markgoddard) & Stig Telfer (@oneswig)
 requirements:
   - python-dracclient python module
@@ -37,9 +51,14 @@ options:
   bios_config:
     description: Dict mapping BIOS configuration names to their desired values
     required: False
+    default: {}
   raid_config:
-    description: List of RAID virtual disk configurations...
+    description: >
+      List of RAID virtual disk configurations. Each item is a dict containing
+      the following items: 'name', 'raid_level', 'span_length', 'span_depth',
+      'pdisks'. The 'pdisks' item should be a list of IDs of physical disks.
     required: False
+    default: []
   reboot:
     description: >
       Whether to reboot the node once BIOS settings have been applied, if
@@ -70,7 +89,7 @@ EXAMPLES = """
     reboot: True
     timeout: 600
 
-# Configure RAID with a single virtual disk.
+# Configure RAID with two virtual disks.
 - drac:
     address: 1.2.3.4
     username: admin
@@ -106,8 +125,42 @@ changed_bios_settings:
   type: dict
   sample:
     NumLock: "On"
-changed_raid_config:
-  ?
+converted_physical_disks:
+  description: >
+    List of physical disks that were converted to RAID mode from non-RAID mode.
+    Each item is a dict containing the RAID controller ID and physical disk ID.
+  returned: success
+  type: list
+  sample:
+    - controller: RAID.Integrated.1-1
+      id: Disk.Bay.0:Enclosure.Internal.0-1:RAID.Integrated.1-1
+    - controller: RAID.Integrated.1-1
+      id: Disk.Bay.1:Enclosure.Internal.0-1:RAID.Integrated.1-1
+created_virtual_disks:
+  description: >
+    List of virtual disks that were created. Each item is a dict containing the
+    name, RAID controller ID, RAID level, span length, span depth and
+    constituent physical disks of the virtual disk.
+  returned: success
+  type: list
+  sample:
+    - name: Virtual Disk 1
+      controller: RAID.Integrated.1-1
+      raid_level: 1
+      span_length: 2
+      span_depth: 1
+      physical_disks:
+        - Disk.Bay.2:Enclosure.Internal.0-1:RAID.Integrated.1-1
+        - Disk.Bay.3:Enclosure.Internal.0-1:RAID.Integrated.1-1
+deleted_virtual_disks:
+  description: >
+    List of virtual disks that were deleted. Each item is a dict containing the
+    RAID controller ID and virtual disk ID.
+  returned: success
+  type: list
+  sample:
+    - controller: RAID.Integrated.1-1
+      id: Disk.Virtual.0:RAID.Integrated.1-1
 reboot_required:
   description: Whether a reboot is required to apply the settings
   returned: success
@@ -124,38 +177,57 @@ class Timeout(Exception):
 
 
 class DRACConfig(object):
-    """WM
+    """State machine for DRAC configuration via WSMAN.
 
+    This object should be used as a base class for classes representing a
+    particular channel of WSMAN configuration, such as the BIOS settings or
+    RAID configuration for a RAID controller.
+
+    The object tracks the current phase of configuration and provides
+    information on the actions that are required to reach the goal state.
     """
 
     class states(object):
-        """WM
+        """State name constants."""
 
-        """
         # Unknown starting state.
         UNKNOWN = 'unknown'
+
         # Existing conflicting changes applied but uncommitted.
         CONFLICTING = 'conflicting'
-        # Existing changes abandoned.
+
+        # Existing conflicting changes abandoned.
         ABANDONED = 'abandoned'
-        # Existing changes committed, further changes required.
+
+        # Existing changes committed, further changes required to reach goal.
         PRE_COMMITTED = 'pre-committed'
-        # Required changes not committed, no committed or uncommitted changes.
+
+        # Required changes not applied or committed. No committed or
+        # uncommitted changes.
         UNCOMMITTED = 'uncommitted'
+
         # Required changes applied.
         APPLIED = 'applied'
+
         # Required changes committed.
         COMMITTED = 'committed'
-        # Complete.
+
+        # Complete - no further changes required.
         COMPLETE = 'complete'
 
     class actions(object):
-        """WM
+        """Action name constants."""
 
-        """
+        # Pending changes have been abandoned.
         ABANDON = 'abandon'
+
+        # Changes have been applied.
         APPLY = 'apply'
+
+        # Applied changes have been committed.
         COMMIT = 'commit'
+
+        # The system has been rebooted, flushing any committed pending changes.
         REBOOT = 'reboot'
 
     # Required actions for each state. A dict mapping current states to the
@@ -179,62 +251,59 @@ class DRACConfig(object):
         self.state = self.states.UNKNOWN
 
     def is_change_required(self):
-        """WM
+        """Return whether any changes need to be applied.
 
+        This method should be implemented by subclasses.
         """
         raise NotImplemented()
 
     def _is_action_required(self, action):
-        """WM
+        """Return whether a given action is required to progress to the goal.
 
+        :param action: The action to query.
         """
         assert self.state in self.required_actions
         return self.required_actions[self.state] == action
 
     def is_flush_required(self):
-        """WM
-
-        """
+        """Return whether a flush is required to progress to the goal."""
         return (self.is_reboot_required() and
                 self.state != self.states.COMMITTED)
 
     def is_abandon_required(self):
-        """WM
-
-        """
+        """Return whether an abandon is required to progress to the goal."""
         return self._is_action_required(self.actions.ABANDON)
 
     def is_apply_required(self):
-        """WM
-
-        """
+        """Return whether an apply is required to progress to the goal."""
         return self._is_action_required(self.actions.APPLY)
 
     def is_commit_required(self):
-        """WM
-
-        """
+        """Return whether a commit is required to progress to the goal."""
         return self._is_action_required(self.actions.COMMIT)
 
     def is_reboot_required(self):
-        """WM
-
-        """
+        """Return whether a reboot is required to progress to the goal."""
         return self._is_action_required(self.actions.REBOOT)
 
-    def is_anything_required(self, include_reboot):
-        """WM
+    def is_complete(self, include_reboot):
+        """Return whether configuration is complete.
 
+        :param include_reboot: Whether to include reboot in the required
+            actions to reach completion.
         """
         if self.state == self.states.COMPLETE:
-            return False
+            return True
         if not include_reboot and self.state == self.states.COMMITTED:
-            return False
-        return True
+            return True
+        return False
 
     def _validate_transition(self, action, allowed_states):
-        """WM
+        """Validate a state transition.
 
+        :param action: The action being taken
+        :param allowed_states: A list of valid current states
+        :raises AssertionError: If the transition is invalid
         """
         assert self.state in allowed_states, (
             "Coding error: invalid state transition detected for %s handling "
@@ -242,9 +311,7 @@ class DRACConfig(object):
             (self.name, action, self.state, ", ".join(allowed_states)))
 
     def handle_abandon(self):
-        """WM
-
-        """
+        """Handle an abandon action."""
         self._validate_transition(self.actions.ABANDON,
                                   {self.states.CONFLICTING})
         if not self.is_change_required():
@@ -253,25 +320,20 @@ class DRACConfig(object):
             self.state = self.states.ABANDONED
 
     def handle_apply(self):
-        """WM
-
-        """
+        """Handle an apply action."""
         self._validate_transition(self.actions.APPLY,
                                   {self.states.UNCOMMITTED,
                                    self.states.ABANDONED})
         self.state = self.states.APPLIED
 
     def handle_commit(self):
-        """WM
-
-        """
+        """Handle a commit action."""
         self._validate_transition(self.actions.COMMIT,
                                   {self.states.APPLIED})
         self.state = self.states.COMMITTED
 
     def handle_reboot(self):
-        """WM
-        """
+        """Handle a reboot action."""
         # NOTE: reboot is valid in any state.
         if self.state == self.states.COMMITTED:
             self.state = self.states.COMPLETE
@@ -279,7 +341,7 @@ class DRACConfig(object):
             self.state = self.states.UNCOMMITTED
 
     def set_initial_state(self, changing, pending, conflicting):
-        """WM
+        """Set the initial state of the configuration state machine.
 
         :param changing: Whether any changes are required
         :param pending: Whether there are any pending changes that must be
@@ -305,9 +367,7 @@ class DRACConfig(object):
 
 
 class BIOSConfig(DRACConfig):
-    """WM
-
-    """
+    """Configuration state machine for DRAC BIOS settings."""
 
     def __init__(self, bios_settings, committed_job):
         super(BIOSConfig, self).__init__('BIOS', committed_job)
@@ -320,8 +380,10 @@ class BIOSConfig(DRACConfig):
         return bool(self.changing_settings)
 
     def validate(self, goal_settings):
-        """WM
+        """Validate the requested BIOS configuration settings.
 
+        :param goal_settings: The requested BIOS configuration settings.
+        :raises UnknownSetting if the requested settings are invalid.
         """
         unknown = set(goal_settings) - set(self.bios_settings)
         if unknown:
@@ -329,15 +391,17 @@ class BIOSConfig(DRACConfig):
                                  ", ".join(unknown))
 
     def process(self, goal_settings):
-        """WM
+        """Process the requested BIOS configuration settings.
 
+        :param goal_settings: The requested BIOS configuration settings.
         """
         self._determine_initial_state(goal_settings)
         self._determine_required_changes(goal_settings)
 
     def _determine_initial_state(self, goal_settings):
-        """WM
+        """Determine and set the initial state of the state machine.
 
+        :param goal_settings: The requested BIOS configuration settings.
         """
         changing = False
         pending = False
@@ -362,8 +426,9 @@ class BIOSConfig(DRACConfig):
         self.set_initial_state(changing, pending, conflicting)
 
     def _determine_required_changes(self, goal_settings):
-        """WM
+        """Determine the changes required to apply the requested BIOS settings.
 
+        :param goal_settings: The requested BIOS configuration settings.
         """
         abandoning = self.is_abandon_required()
         # If abandoning, initialise the settings with any pending values.
@@ -391,16 +456,12 @@ class BIOSConfig(DRACConfig):
                     self.changing_settings[key] = goal_setting
 
     def get_settings_to_apply(self):
-        """WM
-
-        """
+        """Return the BIOS settings to apply."""
         return self.changing_settings.copy()
 
 
 class RAIDConfig(DRACConfig):
-    """WM
-
-    """
+    """Configuration state machine for a single RAID controller."""
 
     def __init__(self, controller, pdisks, vdisks, committed_job):
         super(RAIDConfig, self).__init__('RAID:%s' % controller, committed_job)
@@ -422,34 +483,38 @@ class RAIDConfig(DRACConfig):
         return bool(self.converting or self.deleting or self.creating)
 
     @staticmethod
-    def vdisk_diff(goal_config, vdisk):
-        """WM
+    def vdisk_diff(goal_vdisk, vdisk):
+        """Return whether two virtual disks differ.
 
+        :param goal_vdisk: The requested virtual disk configuration.
+        :param vdisk: The reported virtual disk configuration.
         """
         # Compare RAID level as a string. FIXME: make this more intelligent.
-        return (str(goal_config['raid_level']) != vdisk.raid_level or
-                goal_config['span_depth'] != vdisk.span_depth or
-                goal_config['span_length'] != vdisk.span_length or
-                goal_config['pdisks'] != vdisk.physical_disks)
+        return (str(goal_vdisk['raid_level']) != vdisk.raid_level or
+                goal_vdisk['span_depth'] != vdisk.span_depth or
+                goal_vdisk['span_length'] != vdisk.span_length or
+                goal_vdisk['pdisks'] != vdisk.physical_disks)
 
-    def process(self, goal_configs):
-        """WM
+    def process(self, goal_vdisks):
+        """Process the requested RAID configuration.
 
+        :param goal_vdisks: List of requested virtual disks for this controller
         """
-        self._determine_initial_state(goal_configs)
-        self._determine_required_changes(goal_configs)
+        self._determine_initial_state(goal_vdisks)
+        self._determine_required_changes(goal_vdisks)
 
-    def _determine_initial_state(self, goal_configs):
-        """WM
+    def _determine_initial_state(self, goal_vdisks):
+        """Determine and set the initial state of the state machine.
 
+        :param goal_vdisks: List of requested virtual disks for this controller
         """
         changing = False
         pending = False
         conflicting = False
-        for goal_config in goal_configs.values():
-            if goal_config['name'] in self.vdisks:
-                vdisk = self.vdisks[goal_config['name']]
-                diff = self.vdisk_diff(goal_config, vdisk)
+        for goal_vdisk in goal_vdisks.values():
+            if goal_vdisk['name'] in self.vdisks:
+                vdisk = self.vdisks[goal_vdisk['name']]
+                diff = self.vdisk_diff(goal_vdisk, vdisk)
                 if diff:
                     changing = True
                     if vdisk.pending_operations is not None:
@@ -464,13 +529,14 @@ class RAIDConfig(DRACConfig):
 
         self.set_initial_state(changing, pending, conflicting)
 
-    def _determine_required_changes(self, goal_configs):
-        """WM
+    def _determine_required_changes(self, goal_vdisks):
+        """Determine the changes required to apply the requested RAID config.
 
+        :param goal_vdisks: List of requested virtual disks for this controller
         """
         # Determine which physical disks to convert.
-        for goal_config in goal_configs.values():
-            for pdisk_id in goal_config['pdisks']:
+        for goal_vdisk in goal_vdisks.values():
+            for pdisk_id in goal_vdisk['pdisks']:
                 pdisk = self.pdisks[pdisk_id]
                 if pdisk.raid_state == 'non-RAID':
                     self.converting.append(pdisk_id)
@@ -478,11 +544,11 @@ class RAIDConfig(DRACConfig):
         # Determine which of the requested virtual disks need to be deleted
         # and/or (re)created.
         abandoning = self.is_abandon_required()
-        for goal_config in goal_configs.values():
+        for goal_vdisk in goal_vdisks.values():
             create = True
-            if goal_config['name'] in self.vdisks:
-                vdisk = self.vdisks[goal_config['name']]
-                diff = self.vdisk_diff(goal_config, vdisk)
+            if goal_vdisk['name'] in self.vdisks:
+                vdisk = self.vdisks[goal_vdisk['name']]
+                diff = self.vdisk_diff(goal_vdisk, vdisk)
                 if diff:
                     delete = False
                     if abandoning:
@@ -506,14 +572,15 @@ class RAIDConfig(DRACConfig):
                             create = False
 
             if create:
+                min_size_mb = min([self.pdisks[pdisk_id].size_mb
+                                   for pdisk_id in goal_vdisk['pdisks']])
                 create_vdisk = {
-                    'physical_disks': goal_config['pdisks'],
-                    'raid_level': goal_config['raid_level'],
-                    'size_mb': min([self.pdisks[pdisk_id].size_mb
-                                    for pdisk_id in goal_config['pdisks']]),
-                    'disk_name': goal_config['name'],
-                    'span_length': goal_config['span_length'],
-                    'span_depth': goal_config['span_depth'],
+                    'physical_disks': goal_vdisk['pdisks'],
+                    'raid_level': goal_vdisk['raid_level'],
+                    'size_mb': min_size_mb,
+                    'disk_name': goal_vdisk['name'],
+                    'span_length': goal_vdisk['span_length'],
+                    'span_depth': goal_vdisk['span_depth'],
                 }
                 self.creating.append(create_vdisk)
 
@@ -521,7 +588,7 @@ class RAIDConfig(DRACConfig):
         # get reapplied.
         if abandoning:
             for vdisk in self.vdisks.values():
-                if vdisk.name in goal_configs:
+                if vdisk.name in goal_vdisks:
                     continue
                 if vdisk.pending_operations == 'pending_create':
                     create_vdisk = {
@@ -537,25 +604,22 @@ class RAIDConfig(DRACConfig):
                     self.deleting.append(vdisk.id)
 
     def is_convert_required(self):
-        """WM
-        """
+        """Return whether any physical disks need to be converted to RAID."""
         return bool(self.converting)
 
     def get_pdisks_to_convert(self):
-        """WM
-
-        """
+        """Return a list of physical disks to convert to RAID mode."""
         return self.converting[:]
 
     def get_vdisks_to_delete(self):
-        """WM
-
-        """
+        """Return a list of IDs of virtual disks to delete."""
         return self.deleting[:]
 
     def get_vdisks_to_create(self):
-        """WM
+        """Return a list of virtual disks to create.
 
+        :returns: A list of dicts containing keyword arguments for the
+            dracclient.client.DRACClient.create_virtual_disk method.
         """
         return self.creating[:]
 
@@ -635,14 +699,20 @@ def wait_complete(module, bmc):
 
 
 def get_bios_config(module, bmc):
-    """Check for any configuration changes and actions required to apply them.
+    """Query current BIOS settings and return a BIOS configuration object.
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
-    :returns: A 3-tuple containing a dict of settings that will be changed by
-        this operation, a dict of settings to be applied and a BIOSActions
-        instance containing actions required to apply the configuration
+    :returns: A BIOSConfig object initialised with the initial state of the
+        configuration state machine.
     """
+    if not module.params['bios_config']:
+        debug(module, "No BIOS settings requested")
+        # Return an empty config object.
+        config = BIOSConfig({}, False)
+        config.process({})
+        return config
+
     debug(module, "Checking BIOS settings")
     try:
         bios_settings = bmc.list_bios_settings()
@@ -669,8 +739,11 @@ def get_bios_config(module, bmc):
 
 
 def add_pdisks_to_vdisks(bmc, vdisks):
-    """WM
+    """Add a list of constituent physical disks to each virtual disk object.
 
+    :param bmc: A dracclient.client.DRACClient instance
+    :param vdisks: A list of dracclient.resources.raid.VirtualDisk objects.
+    :returns: A list of VirtualDisk-like objects with physical disks.
     """
     from dracclient.resources import raid as drac_raid
     from dracclient.resources import uris as drac_uris
@@ -706,7 +779,7 @@ def add_pdisks_to_vdisks(bmc, vdisks):
 def list_virtual_disks(bmc):
     """List RAID virtual disks.
 
-    Ensuring that the VirtualDisk objects returned have lists of their
+    Ensure that the VirtualDisk objects returned have lists of their
     component physical disks. If the dracclient module is too old to provide
     this feature, manually query the DRAC to pull the physical disk information
     from the returned XML.
@@ -727,16 +800,21 @@ def list_virtual_disks(bmc):
         return vdisks
 
 
-def map_controller_to_configs(module, pdisks, vdisks):
-    """WM
+def map_controller_to_vdisks(module, pdisks, vdisks):
+    """Map RAID controllers to requested virtual disk configurations.
 
+    :param module: The AnsibleModule instance
+    :param pdisks: List of physical disks reported by the DRAC
+    :param vdisks: List of virtual disks reported by the DRAC
+    :returns: A dict mapping RAID controller IDs to dicts mapping requested
+        virtual disk names to the requested configuration.
     """
     # Provide a mapping from reported physical disk ID to controller ID.
     pdisk_to_controller = {pdisk.id: pdisk.controller for pdisk in pdisks}
 
     # Ensure that all specified physical disks are valid.
-    for goal_config in module.params['raid_config']:
-        unknown_pdisks = set(goal_config['pdisks']) - set(pdisk_to_controller)
+    for goal_vdisk in module.params['raid_config']:
+        unknown_pdisks = set(goal_vdisk['pdisks']) - set(pdisk_to_controller)
         if unknown_pdisks:
             module.fail_json(msg="Requested RAID configuration for %s "
                              "contains physical disks not reported by DRAC: "
@@ -744,27 +822,35 @@ def map_controller_to_configs(module, pdisks, vdisks):
 
     # Ensure that each virtual disk maps to a single RAID controller.
     mapping = {}
-    for goal_config in module.params['raid_config']:
+    for goal_vdisk in module.params['raid_config']:
         goal_controllers = {pdisk_to_controller[pdisk]
-                            for pdisk in goal_config['pdisks']}
+                            for pdisk in goal_vdisk['pdisks']}
         if len(goal_controllers) > 1:
             goal_pdisk_to_controller = {pdisk.id: pdisk.controller
                                         for pdisk in pdisks
-                                        if pdisk.id in goal_config['pdisks']}
+                                        if pdisk.id in goal_vdisk['pdisks']}
             module.fail_json(msg="Requested RAID configuration for %s "
                              "contains physical disks on multiple "
                              "controllers: %s" %
-                             (goal_config['name'], goal_pdisk_to_controller))
+                             (goal_vdisk['name'], goal_pdisk_to_controller))
         controller = goal_controllers.pop()
         mapping.setdefault(controller, {})
-        mapping[controller][goal_config['name']] = goal_config
+        mapping[controller][goal_vdisk['name']] = goal_vdisk
     return mapping
 
 
 def get_raid_configs(module, bmc):
-    """WM
+    """Query current RAID config and return a list of RAID config objects.
 
+    :param module: The AnsibleModule instance
+    :param bmc: A dracclient.client.DRACClient instance
+    :returns: A list of RAIDConfig objects for each RAID controller with
+        a requested virtual disk configuration.
     """
+    if not module.params['raid_config']:
+        debug(module, "No RAID configuration requested")
+        return []
+
     debug(module, "Checking RAID configuration")
     try:
         pdisks = bmc.list_physical_disks()
@@ -781,9 +867,9 @@ def get_raid_configs(module, bmc):
     debug(module, "Existing controllers: %s" % ", ".join(controller_descs))
     debug(module, "Existing virtual disks: %s" % ", ".join(vdisk_descs))
 
-    mapping = map_controller_to_configs(module, pdisks, vdisks)
+    mapping = map_controller_to_vdisks(module, pdisks, vdisks)
     configs = []
-    for controller, goal_configs in mapping.items():
+    for controller, goal_vdisks in mapping.items():
         committed_job = has_committed_raid_job(unfinished_jobs, controller)
         controller_pdisks = {pdisk.id: pdisk for pdisk in pdisks
                              if pdisk.controller == controller}
@@ -791,7 +877,7 @@ def get_raid_configs(module, bmc):
                              if vdisk.controller == controller}
         config = RAIDConfig(controller, controller_pdisks, controller_vdisks,
                             committed_job)
-        config.process(goal_configs)
+        config.process(goal_vdisks)
         configs.append(config)
 
     for config in configs:
@@ -802,7 +888,9 @@ def get_raid_configs(module, bmc):
 
 
 def flush(module, bmc):
-    """Flush any committed pending BIOS configuration changes by rebooting.
+    """Flush any committed pending configuration changes by rebooting.
+
+    Wait for any committed jobs to be flushed by polling the job queue.
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
@@ -842,6 +930,7 @@ def apply_bios(module, bmc, settings):
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
+    :param settings: A dict of BIOS settings to apply.
     """
     debug(module, "Applying BIOS settings; %s" % settings)
     try:
@@ -870,6 +959,7 @@ def abandon_raid(module, bmc, controller):
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
+    :param controller: The RAID controller ID
     """
     debug(module, "Abandoning pending RAID configuration changes for "
           "controller %s" % controller)
@@ -881,8 +971,12 @@ def abandon_raid(module, bmc, controller):
 
 
 def convert_raid(module, bmc, controller, pdisks):
-    """WM
+    """Convert physical disks to RAID mode.
 
+    :param module: The AnsibleModule instance
+    :param bmc: A dracclient.client.DRACClient instance
+    :param controller: The RAID controller ID
+    :param pdisks: A list of IDs of physical disks to convert
     """
     debug(module, "Converting physical disks to RAID mode: %s" %
           ", ".join(pdisks))
@@ -898,6 +992,10 @@ def apply_raid(module, bmc, controller, deleting, creating):
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
+    :param controller: The RAID controller ID
+    :param deleting: A list of IDs of virtual disks to delete
+    :param creating: A list of dicts of keyword arguments to the
+        dracclient.client.DRACClient.create_virtual_disks method
     """
     for vdisk in deleting:
         debug(module, "Deleting RAID virtual disk %s" % vdisk)
@@ -908,7 +1006,7 @@ def apply_raid(module, bmc, controller, deleting, creating):
                              "%s" % repr(e))
 
     for vdisk in creating:
-        debug(module, "Creating RAID virtual disk; %s" % vdisk)
+        debug(module, "Creating RAID virtual disk %s" % vdisk)
         try:
             bmc.create_virtual_disk(controller, **vdisk)
         except Exception as e:
@@ -921,6 +1019,7 @@ def commit_raid(module, bmc, controller):
 
     :param module: The AnsibleModule instance
     :param bmc: A dracclient.client.DRACClient instance
+    :param controller: The RAID controller ID
     """
     debug(module, "Committing pending RAID settings for controller %s" %
           controller)
@@ -948,8 +1047,8 @@ def configure(module):
 
     do_reboot = module.params['reboot']
     # Do we need to make any changes?
-    any_anything = any(config.is_anything_required(do_reboot)
-                       for config in all_configs)
+    any_incomplete = any(not config.is_complete(do_reboot)
+                         for config in all_configs)
     # Do we need to convert any physical disks to RAID mode?
     any_converting = any(config.is_convert_required()
                          for config in raid_configs)
@@ -974,28 +1073,37 @@ def configure(module):
                              "module 'reboot' argument was false.")
 
     # Will the system need to be rebooted after this module has exited?
-    reboot_required = not do_reboot and any_anything
+    reboot_required = not do_reboot and any_incomplete
 
     # The result to be returned by the module.
     result = {
-        "changed": any_anything,
+        "changed": any_incomplete,
         "changed_bios_settings": bios_config.get_settings_to_apply(),
         "converted_physical_disks": [
-            {"controller": config.controller, "id": converted}
+            {
+                "controller": config.controller,
+                "id": converted
+            }
             for config in raid_configs
             for converted in config.get_pdisks_to_convert()
         ],
         "created_virtual_disks": [
-            {"controller": config.controller, "name": created["disk_name"],
-             "raid_level": created["raid_level"],
-              "span_length": created["span_length"],
-              "span_depth": created["span_depth"],
-            "physical_disks": created["physical_disks"]}
+            {
+                "controller": config.controller,
+                "name": created["disk_name"],
+                "raid_level": created["raid_level"],
+                "span_length": created["span_length"],
+                "span_depth": created["span_depth"],
+                "physical_disks": created["physical_disks"]
+            }
             for config in raid_configs
             for created in config.get_vdisks_to_create()
         ],
         "deleted_virtual_disks": [
-            {"controller": config.controller, "id": deleted}
+            {
+                "controller": config.controller,
+                "id": deleted
+            }
             for config in raid_configs
             for deleted in config.get_vdisks_to_delete()
         ],
@@ -1080,13 +1188,62 @@ def configure(module):
             config.handle_reboot()
 
     # Sanity check that all required actions have been taken.
-    anything_required = any(config.is_anything_required(do_reboot)
-                            for config in all_configs)
-    if anything_required:
+    any_incomplete = any(not config.is_complete(do_reboot)
+                         for config in all_configs)
+    if any_incomplete:
         module.fail_json(msg="DRAC configuration incomplete at end of module "
                          "execution. States: %s" % {config.name: config.state
                                                     for config in all_configs})
     return result
+
+
+def validate_arguments(module):
+    """Validate module arguments.
+
+    :param module: An ansible.module_utils.basic.AnsibleModule instance
+    """
+    non_string_settings = {
+        name: setting
+        for name, setting in module.params['bios_config'].items()
+        if not isinstance(setting, basestring)
+    }
+    if non_string_settings:
+        module.fail_json(msg="BIOS settings must be string values. The "
+                         "following settings are not strings: %s" %
+                         non_string_settings)
+
+    def validate_vdisk(vdisk):
+        """Validate a virtual disk argument."""
+        if not isinstance(vdisk, dict):
+            return False
+        required_keys = {'name', 'raid_level', 'span_length', 'span_depth',
+                         'pdisks'}
+        missing_keys = required_keys - set(vdisk)
+        if missing_keys:
+            return False
+        if not isinstance(vdisk['name'], basestring):
+            return False
+        if not all(isinstance(vdisk[attr], (basestring, int))
+                   for attr in {'raid_level', 'span_length', 'span_depth'}):
+            return False
+        pdisks = vdisk['pdisks']
+        if not isinstance(pdisks, list):
+            return False
+        if not all(isinstance(pdisk, basestring) for pdisk in pdisks):
+            return False
+        return True
+
+    invalid_vdisks = [
+        vdisk for vdisk in module.params['raid_config']
+        if not validate_vdisk(vdisk)
+    ]
+    if invalid_vdisks:
+        module.fail_json(msg="RAID configuration must be a list of dicts with "
+                         "the following items: 'name', 'raid_level', "
+                         "'span_length', 'span_depth', 'pdisks'. The 'pdisks'"
+                         "item should be a list of IDs of physical disks. The "
+                         "following items were invalid: %s" % invalid_vdisks)
+
 
 def main():
     """Module entry point."""
@@ -1095,8 +1252,8 @@ def main():
             address=dict(required=True, type='str'),
             username=dict(required=True, type='str'),
             password=dict(required=True, type='str'),
-            bios_config=dict(required=False, type='dict'),
-            raid_config=dict(required=False, type='list'),
+            bios_config=dict(required=False, default={}, type='dict'),
+            raid_config=dict(required=False, default=[], type='list'),
             reboot=dict(default=False, type='bool'),
             timeout=dict(default=0, type='int'),
             interval=dict(default=5, type='int'),
@@ -1108,6 +1265,9 @@ def main():
     if IMPORT_ERRORS:
         module.fail_json(msg="Import errors: %s" %
                          ", ".join([repr(e) for e in IMPORT_ERRORS]))
+
+    # Further argument validation.
+    validate_arguments(module)
 
     try:
         result = configure(module)
