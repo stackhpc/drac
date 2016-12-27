@@ -960,6 +960,89 @@ class FakeRAIDConfig(drac.RAIDConfig):
         self.creating = creating
 
 
+class TestValidateArgs(BaseTestCase):
+    """Test case for Ansible module argument validation."""
+
+    def setUp(self):
+        super(TestValidateArgs, self).setUp()
+        self.module.params = {
+            'bios_config': {
+                'NumLock': 'On'
+            },
+            'raid_config': [
+                {
+                    'name': 'vdisk1',
+                    'raid_level': 1,
+                    'span_length': 2,
+                    'span_depth': 1,
+                    'pdisks': [
+                        'pdisk1',
+                    ],
+                },
+                {
+                    'name': 'vdisk2',
+                    'raid_level': 1,
+                    'span_length': 2,
+                    'span_depth': 1,
+                    'pdisks': [
+                        'pdisk2',
+                    ],
+                },
+            ],
+        }
+
+    def test_ok(self):
+        drac.validate_args(self.module)
+
+    def test_non_string_bios(self):
+        self.module.params['bios_config']['NumLock'] = 1234
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_missing_name(self):
+        del(self.module.params['raid_config'][0]['name'])
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_missing_raid_level(self):
+        del(self.module.params['raid_config'][0]['raid_level'])
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_missing_span_length(self):
+        del(self.module.params['raid_config'][0]['span_length'])
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_missing_span_depth(self):
+        del(self.module.params['raid_config'][0]['span_depth'])
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_missing_span_pdisks(self):
+        del(self.module.params['raid_config'][0]['pdisks'])
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_name(self):
+        self.module.params['raid_config'][0]['name'] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_raid_level(self):
+        self.module.params['raid_config'][0]['raid_level'] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_span_length(self):
+        self.module.params['raid_config'][0]['span_length'] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_span_depth(self):
+        self.module.params['raid_config'][0]['span_depth'] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_pdisks(self):
+        self.module.params['raid_config'][0]['pdisks'] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+    def test_raid_invalid_pdisk(self):
+        self.module.params['raid_config'][0]['pdisks'][0] = object()
+        self.assertRaises(FailJSON, drac.validate_args, self.module)
+
+
 class TestConfigure(BaseTestCase):
     """Test case for the main drac.configure function."""
 

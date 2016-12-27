@@ -1197,7 +1197,7 @@ def configure(module):
     return result
 
 
-def validate_arguments(module):
+def validate_args(module):
     """Validate module arguments.
 
     :param module: An ansible.module_utils.basic.AnsibleModule instance
@@ -1267,7 +1267,7 @@ def main():
                          ", ".join([repr(e) for e in IMPORT_ERRORS]))
 
     # Further argument validation.
-    validate_arguments(module)
+    validate_args(module)
 
     try:
         result = configure(module)
