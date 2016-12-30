@@ -10,8 +10,14 @@ from ansible.module_utils.basic import *
 IMPORT_ERRORS = []
 try:
     import dracclient.client as drac
+    import dracclient.exceptions as drac_exc
+    from dracclient.resources import raid as drac_raid
+    from dracclient.resources import uris as drac_uris
+    from dracclient import utils as drac_utils
 except Exception as e:
     IMPORT_ERRORS.append(e)
+    drac, drac_exc, drac_raid, drac_uris, drac_utils = (
+        None, None, None, None, None)
 
 
 DOCUMENTATION = """
@@ -174,6 +180,10 @@ class UnknownSetting(Exception):
 
 class Timeout(Exception):
     """A timeout occurred."""
+
+
+class VDiskLost(Exception):
+    """A previously reported virtual disk is no longer being reported."""
 
 
 class DRACConfig(object):
@@ -679,7 +689,7 @@ def wait_complete(module, bmc):
     while True:
         try:
             jobs = bmc.list_jobs(only_unfinished=True)
-        except Exception as e:
+        except drac_exc.BaseClientException as e:
             module.fail_json(msg="Failed to check unfinished jobs: %s" %
                              repr(e))
         if len(jobs) == 0:
@@ -717,7 +727,7 @@ def get_bios_config(module, bmc):
     try:
         bios_settings = bmc.list_bios_settings()
         unfinished_jobs = bmc.list_jobs(only_unfinished=True)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed to list BIOS settings: %s" % repr(e))
 
     settings_descs = {key: {"current": value.current_value,
@@ -745,10 +755,6 @@ def add_pdisks_to_vdisks(bmc, vdisks):
     :param vdisks: A list of dracclient.resources.raid.VirtualDisk objects.
     :returns: A list of VirtualDisk-like objects with physical disks.
     """
-    from dracclient.resources import raid as drac_raid
-    from dracclient.resources import uris as drac_uris
-    from dracclient import utils as drac_utils
-
     doc = bmc.client.enumerate(drac_uris.DCIM_VirtualDiskView)
     vdisk_elems = drac_utils.find_xml(doc, 'DCIM_VirtualDiskView',
                                       drac_uris.DCIM_VirtualDiskView,
@@ -763,15 +769,15 @@ def add_pdisks_to_vdisks(bmc, vdisks):
             if vdisk_elem_id == vdisk.id:
                 break
         else:
-            raise Exception("Unable to find a matching virtual disk in "
+            raise VDiskLost("Unable to find a matching virtual disk in "
                             "returned XML. Has the node been rebooted during "
                             "execution of this module?")
 
-        pdisk_elems = drac_utils.find_xml(doc, 'PhysicalDiskIDs',
+        pdisk_elems = drac_utils.find_xml(vdisk_elem, 'PhysicalDiskIDs',
                                           drac_uris.DCIM_VirtualDiskView,
                                           find_all=True)
         pdisks = [pdisk_elem.text.strip() for pdisk_elem in pdisk_elems]
-        new_vdisk = VirtualDisk(vdisk + (pdisks,))
+        new_vdisk = VirtualDisk(*(vdisk + (pdisks,)))
         new_vdisks.append(new_vdisk)
     return new_vdisks
 
@@ -857,7 +863,7 @@ def get_raid_configs(module, bmc):
         controllers = bmc.list_raid_controllers()
         vdisks = list_virtual_disks(bmc)
         unfinished_jobs = bmc.list_jobs(only_unfinished=True)
-    except Exception as e:
+    except (drac_exc.BaseClientException, VDiskLost) as e:
         module.fail_json(msg="Failed to list RAID configuration: %s" % repr(e))
 
     pdisk_descs = [repr(pdisk) for pdisk in pdisks]
@@ -899,7 +905,7 @@ def flush(module, bmc):
     # Reboot the node.
     try:
         bmc.set_power_state('REBOOT')
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed to reboot to apply pending BIOS "
                          "settings: %s" % repr(e))
 
@@ -920,7 +926,7 @@ def abandon_bios(module, bmc):
     debug(module, "Abandoning pending BIOS configuration changes")
     try:
         bmc.abandon_pending_bios_changes()
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed to abandon pending BIOS jobs: %s" %
                          repr(e))
 
@@ -935,7 +941,7 @@ def apply_bios(module, bmc, settings):
     debug(module, "Applying BIOS settings; %s" % settings)
     try:
         bmc.set_bios_settings(settings)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed while applying BIOS settings: %s" %
                          repr(e))
 
@@ -949,7 +955,7 @@ def commit_bios(module, bmc):
     debug(module, "Committing pending BIOS settings")
     try:
         bmc.commit_pending_bios_changes(False)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed while committing BIOS settings: %s" %
                          repr(e))
 
@@ -965,7 +971,7 @@ def abandon_raid(module, bmc, controller):
           "controller %s" % controller)
     try:
         bmc.abandon_pending_raid_changes(controller)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed to abandon pending RAID jobs: %s" %
                          repr(e))
 
@@ -982,7 +988,7 @@ def convert_raid(module, bmc, controller, pdisks):
           ", ".join(pdisks))
     try:
         bmc.convert_physical_disks(controller, pdisks)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed while converting physical disks to RAID "
                          "mode: %s" % repr(e))
 
@@ -1001,7 +1007,7 @@ def apply_raid(module, bmc, controller, deleting, creating):
         debug(module, "Deleting RAID virtual disk %s" % vdisk)
         try:
             bmc.delete_virtual_disk(vdisk)
-        except Exception as e:
+        except drac_exc.BaseClientException as e:
             module.fail_json(msg="Failed while deleting RAID virtual disk: "
                              "%s" % repr(e))
 
@@ -1009,7 +1015,7 @@ def apply_raid(module, bmc, controller, deleting, creating):
         debug(module, "Creating RAID virtual disk %s" % vdisk)
         try:
             bmc.create_virtual_disk(controller, **vdisk)
-        except Exception as e:
+        except drac_exc.BaseClientException as e:
             module.fail_json(msg="Failed while creating RAID virtual disk: "
                              "%s" % repr(e))
 
@@ -1025,7 +1031,7 @@ def commit_raid(module, bmc, controller):
           controller)
     try:
         bmc.commit_pending_raid_changes(controller, False)
-    except Exception as e:
+    except drac_exc.BaseClientException as e:
         module.fail_json(msg="Failed while committing RAID settings: %s" %
                          repr(e))
 
@@ -1197,6 +1203,31 @@ def configure(module):
     return result
 
 
+def validate_vdisk(vdisk):
+    """Validate a virtual disk argument.
+
+    :param vdisk: A single virtual disk argument
+    """
+    if not isinstance(vdisk, dict):
+        return False
+    required_keys = {'name', 'raid_level', 'span_length', 'span_depth',
+                     'pdisks'}
+    missing_keys = required_keys - set(vdisk)
+    if missing_keys:
+        return False
+    if not isinstance(vdisk['name'], basestring):
+        return False
+    if not all(isinstance(vdisk[attr], (basestring, int))
+               for attr in {'raid_level', 'span_length', 'span_depth'}):
+        return False
+    pdisks = vdisk['pdisks']
+    if not isinstance(pdisks, list):
+        return False
+    if not all(isinstance(pdisk, basestring) for pdisk in pdisks):
+        return False
+    return True
+
+
 def validate_args(module):
     """Validate module arguments.
 
@@ -1211,27 +1242,6 @@ def validate_args(module):
         module.fail_json(msg="BIOS settings must be string values. The "
                          "following settings are not strings: %s" %
                          non_string_settings)
-
-    def validate_vdisk(vdisk):
-        """Validate a virtual disk argument."""
-        if not isinstance(vdisk, dict):
-            return False
-        required_keys = {'name', 'raid_level', 'span_length', 'span_depth',
-                         'pdisks'}
-        missing_keys = required_keys - set(vdisk)
-        if missing_keys:
-            return False
-        if not isinstance(vdisk['name'], basestring):
-            return False
-        if not all(isinstance(vdisk[attr], (basestring, int))
-                   for attr in {'raid_level', 'span_length', 'span_depth'}):
-            return False
-        pdisks = vdisk['pdisks']
-        if not isinstance(pdisks, list):
-            return False
-        if not all(isinstance(pdisk, basestring) for pdisk in pdisks):
-            return False
-        return True
 
     invalid_vdisks = [
         vdisk for vdisk in module.params['raid_config']

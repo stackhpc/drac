@@ -26,7 +26,6 @@ class FakeJob(object):
 
 class FailJSON(Exception):
     """Dummy exception for mocking module.fail_json behaviour."""
-    pass
 
 
 class FakeDRACConfig(drac.DRACConfig):
@@ -37,6 +36,10 @@ class FakeDRACConfig(drac.DRACConfig):
 
     def is_change_required(self):
         return self.changing
+
+
+class DummyDRACException(Exception):
+    """Dummy exception class raised by dracclient module."""
 
 
 class BaseTestCase(unittest.TestCase):
@@ -213,13 +216,17 @@ class TestDRACBIOS(BaseTestCase):
         has_job = drac.has_committed_bios_job(jobs)
         self.assertTrue(has_job)
 
-    def test_get_bios_config_list_settings_failure(self):
-        self.bmc.list_bios_settings.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_bios_config_list_settings_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_bios_settings.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_bios_config,
                           self.module, self.bmc)
 
-    def test_get_bios_config_list_jobs_failure(self):
-        self.bmc.list_jobs.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_bios_config_list_jobs_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_jobs.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_bios_config,
                           self.module, self.bmc)
 
@@ -365,7 +372,8 @@ class FakeVDisk(object):
                  span_length, span_depth, size_mb, pending_operations=None):
         self.name = name
         self.controller = controller
-        self.physical_disks = physical_disks
+        if physical_disks is not None:
+            self.physical_disks = physical_disks
         self.raid_level = str(raid_level)
         self.span_depth = span_depth
         self.span_length = span_length
@@ -373,6 +381,14 @@ class FakeVDisk(object):
         self.pending_operations = pending_operations
         # IDs are not user facing but must be unique.
         self.id = "%s-id" % name
+
+    def __add__(self, other):
+        """Override the addition operator to make this look like a tuple."""
+        if isinstance(other, tuple):
+            return (self.id, self.name, self.controller, self.raid_level,
+                    self.size_mb, self.span_depth, self.span_length,
+                    self.pending_operations) + other
+        return super(FakeVDisk, self).__add__(other)
 
 
 class TestDRACRAID(BaseTestCase):
@@ -398,23 +414,31 @@ class TestDRACRAID(BaseTestCase):
         has_job = drac.has_committed_raid_job(jobs, 'Controller1')
         self.assertFalse(has_job)
 
-    def test_get_raid_configs_list_pdisks_failure(self):
-        self.bmc.list_physical_disks.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_raid_configs_list_pdisks_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_physical_disks.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_raid_configs,
                           self.module, self.bmc)
 
-    def test_get_raid_configs_list_raid_controllers_failure(self):
-        self.bmc.list_raid_controllers.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_raid_configs_list_raid_controllers_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_raid_controllers.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_raid_configs,
                           self.module, self.bmc)
 
-    def test_get_raid_configs_list_vdisks_failure(self):
-        self.bmc.list_virtual_disks.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_raid_configs_list_vdisks_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_virtual_disks.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_raid_configs,
                           self.module, self.bmc)
 
-    def test_get_raid_configs_list_jobs_failure(self):
-        self.bmc.list_jobs.side_effect = Exception
+    @mock.patch.object(drac, 'drac_exc')
+    def test_get_raid_configs_list_jobs_failure(self, mock_exc):
+        mock_exc.BaseClientException = DummyDRACException
+        self.bmc.list_jobs.side_effect = DummyDRACException
         self.assertRaises(FailJSON, drac.get_raid_configs,
                           self.module, self.bmc)
 
@@ -943,6 +967,51 @@ class TestDRACRAID(BaseTestCase):
                              [{'disk_name': 'vdisk2', 'raid_level': 1,
                                'span_length': 2, 'span_depth': 1,
                                'size_mb': 42, 'physical_disks': ['pdisk2']}])
+
+    @mock.patch.object(drac, 'drac_raid')
+    @mock.patch.object(drac, 'drac_uris')
+    @mock.patch.object(drac, 'drac_utils')
+    def test_list_virtual_disks_with_physical_disk_workaround(self, mock_utils,
+                                                              mock_uris,
+                                                              mock_raid):
+        def fake_find_xml(doc, attr, uri, find_all):
+            class FakeElem(object):
+                def __init__(self, text):
+                    self.text = text
+
+            if attr == 'DCIM_VirtualDiskView':
+                return ['vdisk1', 'vdisk2']
+            if attr == 'PhysicalDiskIDs':
+                if doc == 'vdisk1':
+                    return [FakeElem('pdisk1'), FakeElem('pdisk2')]
+                if doc == 'vdisk2':
+                    return [FakeElem('pdisk3'), FakeElem('pdisk4')]
+
+        def fake_resource_attr(elem, uri, attr):
+            return "%s-id" % elem
+
+        self.bmc.list_virtual_disks.return_value = [
+            FakeVDisk('vdisk1', 'controller1', None, 1, 2, 1, 42, None),
+            FakeVDisk('vdisk2', 'controller2', None, 1, 2, 1, 42, None),
+        ]
+        mock_raid.VirtualDiskTuple._fields = ('id', 'name', 'controller',
+            'raid_level', 'size_mb', 'span_depth', 'span_length',
+            'pending_operations')
+        mock_utils.find_xml.side_effect = fake_find_xml
+        mock_utils.get_wsman_resource_attr.side_effect = fake_resource_attr
+        vdisks = drac.list_virtual_disks(self.bmc)
+        self.bmc.list_virtual_disks.assert_called_once_with()
+        self.assertEqual(len(vdisks), 2)
+        self.assertEqual(dict(vdisks[0]._asdict()),
+            {'id': 'vdisk1-id', 'name': 'vdisk1', 'controller': 'controller1',
+             'raid_level': '1', 'size_mb': 42, 'span_depth': 1,
+             'span_length': 2, 'pending_operations': None,
+             'physical_disks': ['pdisk1', 'pdisk2']})
+        self.assertEqual(dict(vdisks[1]._asdict()),
+            {'id': 'vdisk2-id', 'name': 'vdisk2', 'controller': 'controller2',
+             'raid_level': '1', 'size_mb': 42, 'span_depth': 1,
+             'span_length': 2, 'pending_operations': None,
+             'physical_disks': ['pdisk3', 'pdisk4']})
 
 
 class FakeBIOSConfig(drac.BIOSConfig):
