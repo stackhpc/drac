@@ -49,8 +49,8 @@ The following variables may be set for this role:
 
 `drac_raid_config`
 : List of virtual disk configurations. Each item should be a dict containing
-  the following items: 'name', 'raid\_level', 'span\_length', 'span\_depth',
-  'pdisks'. The 'pdisks' item should be a list of physical disk IDs.
+  the following items: `name`, `raid\_level`, `span\_length`, `span\_depth`,
+  `pdisks`. The `pdisks` item should be a list of physical disk IDs.
 
 `drac_reboot`
 : Whether to reboot the node (if required) once the configuration has been
