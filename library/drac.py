@@ -902,12 +902,14 @@ def flush(module, bmc):
     :param bmc: A dracclient.client.DRACClient instance
     """
     debug(module, "Flushing BIOS and/or RAID settings by rebooting")
-    # Reboot the node.
+    current_state = bmc.get_power_state()
+    goal_state = 'POWER_ON' if current_state == 'POWER_OFF' else 'REBOOT'
+    # Reboot or power on the node.
     try:
-        bmc.set_power_state('REBOOT')
+        bmc.set_power_state(goal_state)
     except drac_exc.BaseClientException as e:
-        module.fail_json(msg="Failed to reboot to apply pending BIOS "
-                         "settings: %s" % repr(e))
+        module.fail_json(msg="Failed to set power state to %s to apply "
+                         "pending BIOS settings: %s" % (goal_state, repr(e)))
 
     # Wait for the reboot to flush pending jobs.
     try:
@@ -915,6 +917,14 @@ def flush(module, bmc):
     except Timeout as e:
         module.fail_json(msg="Failed waiting for reboot to flush "
                          "pending BIOS settings: %s" % repr(e))
+
+    # Power off the node if it was previously powered off.
+    if current_state == 'POWER_OFF':
+        try:
+            bmc.set_power_state('POWER_OFF')
+        except drac_exc.BaseClientException as e:
+            module.fail_json(msg="Failed to set power state to off: %s"
+                             % repr(e))
 
 
 def abandon_bios(module, bmc):

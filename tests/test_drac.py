@@ -1133,6 +1133,7 @@ class TestConfigure(BaseTestCase):
         }
         self.module.check_mode = False
         self.bmc.list_jobs.side_effect = [[FakeJob('ConfigBIOS')], []]
+        self.bmc.get_power_state.return_value = 'POWER ON'
         drac.configure(self.module)
         self.bmc.set_bios_settings.assert_called_once_with({'NumLock': 'On'})
         self.bmc.commit_pending_bios_changes.assert_called_once_with(False)
@@ -1166,6 +1167,7 @@ class TestConfigure(BaseTestCase):
         }
         self.module.check_mode = False
         self.bmc.list_jobs.side_effect = [[FakeJob('ConfigBIOS')], []]
+        self.bmc.get_power_state.return_value = 'POWER ON'
         drac.configure(self.module)
         self.bmc.convert_physical_disks.assert_called_once_with(
             'controller1', ['pdisk1'])
