@@ -493,17 +493,19 @@ class RAIDConfig(DRACConfig):
         return bool(self.converting or self.deleting or self.creating)
 
     @staticmethod
-    def vdisk_diff(goal_vdisk, vdisk):
+    def vdisk_diff(goal_vdisk, vdisk, min_size_mb):
         """Return whether two virtual disks differ.
 
         :param goal_vdisk: The requested virtual disk configuration.
         :param vdisk: The reported virtual disk configuration.
+        :param min_size_mb: Size of the smallest disk in MB.
         """
         # Compare RAID level as a string. FIXME: make this more intelligent.
         return (str(goal_vdisk['raid_level']) != vdisk.raid_level or
                 goal_vdisk['span_depth'] != vdisk.span_depth or
                 goal_vdisk['span_length'] != vdisk.span_length or
-                goal_vdisk['pdisks'] != vdisk.physical_disks)
+                goal_vdisk['pdisks'] != vdisk.physical_disks or
+                min_size_mb * goal_vdisk['span_depth'] != vdisk.size_mb)
 
     def process(self, goal_vdisks):
         """Process the requested RAID configuration.
@@ -523,8 +525,10 @@ class RAIDConfig(DRACConfig):
         conflicting = False
         for goal_vdisk in goal_vdisks.values():
             if goal_vdisk['name'] in self.vdisks:
+                min_size_mb = min([self.pdisks[pdisk_id].size_mb
+                                   for pdisk_id in goal_vdisk['pdisks']])
                 vdisk = self.vdisks[goal_vdisk['name']]
-                diff = self.vdisk_diff(goal_vdisk, vdisk)
+                diff = self.vdisk_diff(goal_vdisk, vdisk, min_size_mb)
                 if diff:
                     changing = True
                     if vdisk.pending_operations is not None:
@@ -555,10 +559,12 @@ class RAIDConfig(DRACConfig):
         # and/or (re)created.
         abandoning = self.is_abandon_required()
         for goal_vdisk in goal_vdisks.values():
+            min_size_mb = min([self.pdisks[pdisk_id].size_mb
+                               for pdisk_id in goal_vdisk['pdisks']])
             create = True
             if goal_vdisk['name'] in self.vdisks:
                 vdisk = self.vdisks[goal_vdisk['name']]
-                diff = self.vdisk_diff(goal_vdisk, vdisk)
+                diff = self.vdisk_diff(goal_vdisk, vdisk, min_size_mb)
                 if diff:
                     delete = False
                     if abandoning:
@@ -582,12 +588,10 @@ class RAIDConfig(DRACConfig):
                             create = False
 
             if create:
-                min_size_mb = min([self.pdisks[pdisk_id].size_mb
-                                   for pdisk_id in goal_vdisk['pdisks']])
                 create_vdisk = {
                     'physical_disks': goal_vdisk['pdisks'],
                     'raid_level': goal_vdisk['raid_level'],
-                    'size_mb': min_size_mb,
+                    'size_mb': min_size_mb * goal_vdisk['span_depth'],
                     'disk_name': goal_vdisk['name'],
                     'span_length': goal_vdisk['span_length'],
                     'span_depth': goal_vdisk['span_depth'],

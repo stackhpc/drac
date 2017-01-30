@@ -510,10 +510,11 @@ class TestDRACRAID(BaseTestCase):
             'raid_config': [
                 {
                     'name': 'vdisk1',
-                    'raid_level': 1,
+                    'raid_level': '1+0',
                     'span_length': 2,
-                    'span_depth': 1,
+                    'span_depth': 2,
                     'pdisks': [
+                        'pdisk1',
                         'pdisk2',
                     ],
                 },
@@ -532,9 +533,10 @@ class TestDRACRAID(BaseTestCase):
         self.assertListEqual(deleting, ['vdisk1-id'])
         creating = config.get_vdisks_to_create()
         self.assertListEqual(creating,
-                             [{'disk_name': 'vdisk1', 'raid_level': 1,
-                               'span_length': 2, 'span_depth': 1,
-                               'size_mb': 42, 'physical_disks': ['pdisk2']}])
+                             [{'disk_name': 'vdisk1', 'raid_level': '1+0',
+                               'span_length': 2, 'span_depth': 2,
+                               'size_mb': 84,
+                               'physical_disks': ['pdisk1', 'pdisk2']}])
 
     def test_get_raid_configs_change_one_uncommitted_pending_create(self):
         self.bmc.list_physical_disks.return_value = [
@@ -1156,7 +1158,8 @@ class TestConfigure(BaseTestCase):
                 'controller1', FakeRAIDConfig.states.UNCOMMITTED,
                 ['pdisk1'], ['vdisk1'],
                 [{'disk_name': 'vdisk2', 'raid_level': 1, 'span_length': 2,
-                  'span_depth': 1, 'physical_disks': ['pdisk1']}]),
+                  'span_depth': 1, 'size_mb': 42,
+                  'physical_disks': ['pdisk1']}]),
         ]
         self.module.params = {
             'address': '',
@@ -1174,7 +1177,7 @@ class TestConfigure(BaseTestCase):
         self.bmc.delete_virtual_disk.assert_called_once_with('vdisk1')
         self.bmc.create_virtual_disk.assert_called_once_with(
             'controller1', disk_name='vdisk2', raid_level=1, span_length=2,
-            span_depth=1, physical_disks=['pdisk1'])
+            span_depth=1, size_mb=42, physical_disks=['pdisk1'])
         self.bmc.set_power_state.assert_has_calls([mock.call('REBOOT')] * 3)
         mock_wait.assert_has_calls([mock.call(self.module, self.bmc)] * 3)
         self.bmc.set_bios_settings.assert_not_called()
