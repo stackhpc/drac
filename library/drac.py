@@ -844,7 +844,7 @@ def map_controller_to_vdisks(module, pdisks, vdisks):
                              "controllers: %s" %
                              (goal_vdisk['name'], goal_pdisk_to_controller))
         controller = goal_controllers.pop()
-        mapping.setdefault(controller, {})
+        mapping.setdefault(controller, collections.OrderedDict())
         mapping[controller][goal_vdisk['name']] = goal_vdisk
     return mapping
 
