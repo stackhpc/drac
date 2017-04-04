@@ -23,3 +23,7 @@ drac_timeout: 0
 
 # Time in seconds between polling for pending operations to complete.
 drac_interval: 5
+
+# Whether to execute the `drac` module in check mode. Defaults to unset which
+# uses the global check mode.
+drac_check_mode:

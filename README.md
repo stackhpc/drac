@@ -63,6 +63,13 @@ The following variables may be set for this role:
 `drac_interval`
 : Time in seconds between polling for operations to complete.
 
+`drac_check_mode`
+: Whether to execute the `drac` module in check mode. Defaults to unset which
+  uses the global check mode.
+
+`drac_result`
+: Will be set to the registered result of the `drac` module.
+
 Dependencies
 ------------
 
