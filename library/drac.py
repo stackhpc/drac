@@ -1296,6 +1296,7 @@ def main():
     try:
         result = configure(module)
     except Exception as e:
+        debug(module, traceback.format_exc())
         module.fail_json(msg="Failed to configure DRAC: %s" % repr(e))
     else:
         module.exit_json(**result)
