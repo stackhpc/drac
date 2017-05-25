@@ -780,7 +780,8 @@ def add_pdisks_to_vdisks(bmc, vdisks):
         pdisk_elems = drac_utils.find_xml(vdisk_elem, 'PhysicalDiskIDs',
                                           drac_uris.DCIM_VirtualDiskView,
                                           find_all=True)
-        pdisks = [pdisk_elem.text.strip() for pdisk_elem in pdisk_elems]
+        pdisks = [pdisk_elem.text.strip() for pdisk_elem in pdisk_elems
+                  if pdisk_elem.text]
         new_vdisk = VirtualDisk(*(vdisk + (pdisks,)))
         new_vdisks.append(new_vdisk)
     return new_vdisks
