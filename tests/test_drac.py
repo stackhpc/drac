@@ -1178,10 +1178,51 @@ class TestConfigure(BaseTestCase):
         self.bmc.create_virtual_disk.assert_called_once_with(
             'controller1', disk_name='vdisk2', raid_level=1, span_length=2,
             span_depth=1, size_mb=42, physical_disks=['pdisk1'])
-        self.bmc.set_power_state.assert_has_calls([mock.call('REBOOT')] * 3)
-        mock_wait.assert_has_calls([mock.call(self.module, self.bmc)] * 3)
-        self.bmc.set_bios_settings.assert_not_called()
-        self.bmc.commit_pending_bios_changes.assert_not_called()
+        self.bmc.set_power_state.assert_called_with('REBOOT')
+        self.assertEqual(3, self.bmc.set_power_state.call_count)
+        mock_wait.assert_called_with(self.module, self.bmc)
+        self.assertEqual(3, mock_wait.call_count)
+
+    @mock.patch.object(drac, 'build_client')
+    @mock.patch.object(drac, 'get_bios_config')
+    @mock.patch.object(drac, 'get_raid_configs')
+    @mock.patch.object(drac, 'wait_complete')
+    def test_configure_bios_and_raid(self, mock_wait, mock_raid, mock_bios,
+                                     mock_build):
+        mock_build.return_value = self.bmc
+        mock_bios.return_value = FakeBIOSConfig(
+            FakeBIOSConfig.states.UNCOMMITTED, {'NumLock': 'On'})
+        mock_raid.return_value = [
+            FakeRAIDConfig(
+                'controller1', FakeRAIDConfig.states.UNCOMMITTED,
+                ['pdisk1'], ['vdisk1'],
+                [{'disk_name': 'vdisk2', 'raid_level': 1, 'span_length': 2,
+                  'span_depth': 1, 'size_mb': 42,
+                  'physical_disks': ['pdisk1']}]),
+        ]
+        self.module.params = {
+            'address': '',
+            'username': '',
+            'reboot': True,
+            'timeout': 10,
+            'interval': 1,
+        }
+        self.module.check_mode = False
+        self.bmc.list_jobs.side_effect = [[FakeJob('ConfigBIOS')], []]
+        self.bmc.get_power_state.return_value = 'POWER ON'
+        drac.configure(self.module)
+        self.bmc.set_bios_settings.assert_called_once_with({'NumLock': 'On'})
+        self.bmc.commit_pending_bios_changes.assert_called_once_with(False)
+        self.bmc.convert_physical_disks.assert_called_once_with(
+            'controller1', ['pdisk1'])
+        self.bmc.delete_virtual_disk.assert_called_once_with('vdisk1')
+        self.bmc.create_virtual_disk.assert_called_once_with(
+            'controller1', disk_name='vdisk2', raid_level=1, span_length=2,
+            span_depth=1, size_mb=42, physical_disks=['pdisk1'])
+        self.bmc.set_power_state.assert_called_with('REBOOT')
+        self.assertEqual(4, self.bmc.set_power_state.call_count)
+        mock_wait.assert_called_with(self.module, self.bmc)
+        self.assertEqual(4, mock_wait.call_count)
 
 
 if __name__ == "__main__":
