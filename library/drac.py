@@ -1176,10 +1176,30 @@ def configure(module):
         for config in all_configs:
             config.handle_reboot()
 
+    # NOTE: Previously we were configuring BIOS and RAID simultaneously in
+    # order to avoid an unnecessary reboot. This was found to cause problems
+    # on a particular R630 server, causing the configuration to fail and the
+    # Lifecycle controller to enter a reboot loop. The issue was resolved by
+    # resetting the iDRAC configuration to factory defaults and clearing the
+    # job queue. Rather than go through that process again we'll apply BIOS
+    # and RAID configuration separately.
+
     # If there are any BIOS changes to apply, then apply them.
     if bios_config.is_apply_required():
         apply_bios(module, bmc, bios_config.get_settings_to_apply())
         bios_config.handle_apply()
+
+    # Commit pending BIOS configuration changes.
+    if bios_config.is_commit_required():
+        commit_bios(module, bmc)
+        bios_config.handle_commit()
+
+    # Reboot #3:
+    # Reboot to apply BIOS changes.
+    if do_reboot and bios_config.is_reboot_required():
+        flush(module, bmc)
+        for config in all_configs:
+            config.handle_reboot()
 
     # If there are any RAID changes to apply, then apply them.
     for raid_config in raid_configs:
@@ -1189,21 +1209,16 @@ def configure(module):
             apply_raid(module, bmc, raid_config.controller, deleting, creating)
             raid_config.handle_apply()
 
-    # Commit pending BIOS configuration changes.
-    if bios_config.is_commit_required():
-        commit_bios(module, bmc)
-        bios_config.handle_commit()
-
     # Commit pending RAID configuration changes.
     for raid_config in raid_configs:
         if raid_config.is_commit_required():
             commit_raid(module, bmc, raid_config.controller)
             raid_config.handle_commit()
 
-    # Reboot #3:
-    # Reboot to apply changes.
+    # Reboot #4:
+    # Reboot to apply RAID changes.
     if do_reboot and any(config.is_reboot_required()
-                         for config in all_configs):
+                         for config in raid_configs):
         flush(module, bmc)
         for config in all_configs:
             config.handle_reboot()
