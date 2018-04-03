@@ -829,7 +829,7 @@ def map_controller_to_vdisks(module, pdisks, vdisks):
         if unknown_pdisks:
             module.fail_json(msg="Requested RAID configuration for %s "
                              "contains physical disks not reported by DRAC: "
-                             "%s" % unknown_pdisks)
+                             "%s" % (goal_vdisk['name'], unknown_pdisks))
 
     # Ensure that each virtual disk maps to a single RAID controller.
     mapping = {}
