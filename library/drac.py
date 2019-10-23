@@ -43,7 +43,7 @@ description:
     configuration, this module may take a long time to execute.
 author: Mark Goddard (@markgoddard) & Stig Telfer (@oneswig)
 requirements:
-  - python-dracclient python module
+  - python-dracclient >= 2.0.0
 options:
   address:
     description: Address to use when communicating with the DRAC
