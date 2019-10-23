@@ -355,11 +355,11 @@ class TestDRACBIOS(BaseTestCase):
 
 
 class FakePDisk(object):
-    def __init__(self, id, controller, size_mb, raid_state='ready'):
+    def __init__(self, id, controller, size_mb, raid_status='ready'):
         self.id = id
         self.controller = controller
         self.size_mb = size_mb
-        self.raid_state = raid_state
+        self.raid_status = raid_status
 
 
 class FakeController(object):

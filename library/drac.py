@@ -552,7 +552,7 @@ class RAIDConfig(DRACConfig):
         for goal_vdisk in goal_vdisks.values():
             for pdisk_id in goal_vdisk['pdisks']:
                 pdisk = self.pdisks[pdisk_id]
-                if pdisk.raid_state == 'non-RAID':
+                if pdisk.raid_status == 'non-RAID':
                     self.converting.append(pdisk_id)
 
         # Determine which of the requested virtual disks need to be deleted
