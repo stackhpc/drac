@@ -1280,7 +1280,7 @@ def validate_args(module):
     if invalid_vdisks:
         module.fail_json(msg="RAID configuration must be a list of dicts with "
                          "the following items: 'name', 'raid_level', "
-                         "'span_length', 'span_depth', 'pdisks'. The 'pdisks'"
+                         "'span_length', 'span_depth', 'pdisks'. The 'pdisks' "
                          "item should be a list of IDs of physical disks. The "
                          "following items were invalid: %s" % invalid_vdisks)
 
