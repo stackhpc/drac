@@ -43,7 +43,7 @@ description:
     configuration, this module may take a long time to execute.
 author: Mark Goddard (@markgoddard) & Stig Telfer (@oneswig)
 requirements:
-  - python-dracclient python module
+  - python-dracclient >= 2.0.0
 options:
   address:
     description: Address to use when communicating with the DRAC
@@ -552,7 +552,7 @@ class RAIDConfig(DRACConfig):
         for goal_vdisk in goal_vdisks.values():
             for pdisk_id in goal_vdisk['pdisks']:
                 pdisk = self.pdisks[pdisk_id]
-                if pdisk.raid_state == 'non-RAID':
+                if pdisk.raid_status == 'non-RAID':
                     self.converting.append(pdisk_id)
 
         # Determine which of the requested virtual disks need to be deleted
@@ -1280,7 +1280,7 @@ def validate_args(module):
     if invalid_vdisks:
         module.fail_json(msg="RAID configuration must be a list of dicts with "
                          "the following items: 'name', 'raid_level', "
-                         "'span_length', 'span_depth', 'pdisks'. The 'pdisks'"
+                         "'span_length', 'span_depth', 'pdisks'. The 'pdisks' "
                          "item should be a list of IDs of physical disks. The "
                          "following items were invalid: %s" % invalid_vdisks)
 

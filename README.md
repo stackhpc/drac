@@ -27,8 +27,8 @@ Requirements
 ------------
 
 The role provides a module, `drac`, that is dependent upon the
-`python-dracclient` module. This must be installed in order for this module
-to function correctly.
+`python-dracclient` package version 2.0.0 or greater. This must be installed in
+order for this module to function correctly.
 
 Role Variables
 --------------

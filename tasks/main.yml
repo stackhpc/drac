@@ -2,8 +2,8 @@
 # We use local_action to execute the module on the local host,
 # interacting with the DRACs via their APIs.
 - name: Ensure that DRAC configuration is applied
-  local_action:
-    module: drac
+  delegate_to: localhost
+  drac:
     address: "{{ drac_address }}"
     username: "{{ drac_username }}"
     password: "{{ drac_password }}"
