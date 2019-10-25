@@ -543,6 +543,19 @@ class RAIDConfig(DRACConfig):
 
         self.set_initial_state(changing, pending, conflicting)
 
+    @staticmethod
+    def _compute_size_mb(goal_vdisk, min_size_mb):
+        raid_level = str(goal_vdisk['raid_level'])
+        if raid_level in ('6', '6+0'):
+            parity_disks_per_span = 2
+        elif raid_level in ('5', '5+0'):
+            parity_disks_per_span = 1
+        else:
+            parity_disks_per_span = 0
+        length = goal_vdisk['span_length'] - parity_disks_per_span
+        effective_length = 1 if raid_level in ('1', '1+0') else length
+        return min_size_mb * effective_length * goal_vdisk['span_depth']
+
     def _determine_required_changes(self, goal_vdisks):
         """Determine the changes required to apply the requested RAID config.
 
@@ -588,10 +601,11 @@ class RAIDConfig(DRACConfig):
                             create = False
 
             if create:
+                size_mb = self._compute_size_mb(goal_vdisk, min_size_mb)
                 create_vdisk = {
                     'physical_disks': goal_vdisk['pdisks'],
                     'raid_level': goal_vdisk['raid_level'],
-                    'size_mb': min_size_mb * goal_vdisk['span_depth'],
+                    'size_mb': size_mb,
                     'disk_name': goal_vdisk['name'],
                     'span_length': goal_vdisk['span_length'],
                     'span_depth': goal_vdisk['span_depth'],

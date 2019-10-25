@@ -1015,6 +1015,93 @@ class TestDRACRAID(BaseTestCase):
              'span_length': 2, 'pending_operations': None,
              'physical_disks': ['pdisk3', 'pdisk4']})
 
+    def test_compute_size_mb(self):
+        goal_vdisk0 = {
+            'name': 'vdisk0',
+            'raid_level': 0,
+            'span_length': 1,
+            'span_depth': 2,
+            'pdisks': [
+                'pdisk1', 'pdisk2',
+            ],
+        }
+        self.assertEqual(
+            42 * 2, FakeRAIDConfig._compute_size_mb(goal_vdisk0, 42))
+
+        goal_vdisk1 = {
+            'name': 'vdisk1',
+            'raid_level': 1,
+            'span_length': 2,
+            'span_depth': 1,
+            'pdisks': [
+                'pdisk1', 'pdisk2',
+            ],
+        }
+        self.assertEqual(
+            42, FakeRAIDConfig._compute_size_mb(goal_vdisk1, 42))
+
+        goal_vdisk5 = {
+            'name': 'vdisk5',
+            'raid_level': 5,
+            'span_length': 3,
+            'span_depth': 1,
+            'pdisks': [
+                'pdisk1', 'pdisk2', 'pdisk3',
+            ],
+        }
+        self.assertEqual(
+            42 * 2, FakeRAIDConfig._compute_size_mb(goal_vdisk5, 42))
+
+        goal_vdisk6 = {
+            'name': 'vdisk6',
+            'raid_level': 6,
+            'span_length': 4,
+            'span_depth': 1,
+            'pdisks': [
+                'pdisk1', 'pdisk2', 'pdisk3', 'pdisk4',
+            ],
+        }
+        self.assertEqual(
+            42 * 2, FakeRAIDConfig._compute_size_mb(goal_vdisk6, 42))
+
+        goal_vdisk10 = {
+            'name': 'vdisk10',
+            'raid_level': '1+0',
+            'span_length': 2,
+            'span_depth': 3,
+            'pdisks': [
+                'pdisk1', 'pdisk2', 'pdisk3', 'pdisk4', 'pdisk5', 'pdisk6',
+            ],
+        }
+        self.assertEqual(
+            42 * 3, FakeRAIDConfig._compute_size_mb(goal_vdisk10, 42))
+
+        goal_vdisk50 = {
+            'name': 'vdisk50',
+            'raid_level': '5+0',
+            'span_length': 3,
+            'span_depth': 3,
+            'pdisks': [
+                'pdisk1', 'pdisk2', 'pdisk3', 'pdisk4', 'pdisk5', 'pdisk6',
+                'pdisk7', 'pdisk8', 'pdisk9',
+            ],
+        }
+        self.assertEqual(
+            42 * 2 * 3, FakeRAIDConfig._compute_size_mb(goal_vdisk50, 42))
+
+        goal_vdisk60 = {
+            'name': 'vdisk60',
+            'raid_level': '6+0',
+            'span_length': 4,
+            'span_depth': 2,
+            'pdisks': [
+                'pdisk1', 'pdisk2', 'pdisk3', 'pdisk4', 'pdisk5', 'pdisk6',
+                'pdisk7', 'pdisk8',
+            ],
+        }
+        self.assertEqual(
+            42 * 2 * 2, FakeRAIDConfig._compute_size_mb(goal_vdisk60, 42))
+
 
 class FakeBIOSConfig(drac.BIOSConfig):
     def __init__(self, state, changing_settings):
