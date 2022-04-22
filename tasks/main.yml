@@ -13,4 +13,4 @@
     timeout: "{{ drac_timeout }}"
     interval: "{{ drac_interval }}"
   register: drac_result
-  check_mode: "{{ drac_check_mode | default(ansible_check_mode) }}"
+  check_mode: "{{ drac_check_mode | default(ansible_check_mode, true) | bool }}"
